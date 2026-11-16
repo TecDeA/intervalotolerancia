@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Calculadora de Resistencias y Tolerancia (4 Bandas)</title>
+    <meta name="description" content="Calcula el valor nominal y el intervalo de tolerancia (mínimo y máximo) de una resistencia según sus bandas de color, conforme al código IEC 60062 de 4 bandas. Funciona sin conexión.">
+    <meta name="author" content="TecDeA">
+
+    <!-- PWA: manifiesto y colores -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#1e293b">
+
+    <!-- Iconos y favicons -->
+    <link rel="icon" href="icons/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+    <!-- Soporte iOS / modo standalone -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Resistencias">
+
+    <!-- CSS compilado localmente (Tailwind) y fuente Inter auto-hospedada: sin CDNs, 100% offline -->
+    <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="fonts/inter.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Estilo sutil para el cuerpo de la resistencia en SVG */
+        .resistor-shadow {
+            filter: drop-shadow(0 10px 15px rgba(0, 0, 0, 0.15));
+        }
+        /* Transición suave para el cambio de colores de las bandas */
+        .band-transition {
+            transition: fill 0.3s ease, opacity 0.3s ease, filter 0.2s ease;
+        }
+        /* Estilo interactivo para las bandas pulsables en el SVG */
+        .clickable-band {
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        .clickable-band:hover .band-visual {
+            filter: brightness(1.12);
+        }
+        .clickable-band:focus-visible {
+            outline: none;
+        }
+        .clickable-band:focus-visible .band-visual {
+            stroke: #6366f1;
+            stroke-width: 3;
+            filter: brightness(1.15);
+        }
+        .band-label-btn:focus-visible {
+            outline: 2px solid #6366f1;
+            outline-offset: 2px;
+            border-radius: 6px;
+        }
+        /* Estilo personalizado para selectores */
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1em;
+        }
+        /* Animación suave para el acordeón */
+        .accordion-content {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.3s ease-out;
+        }
+        .accordion-content.open {
+            grid-template-rows: 1fr;
+        }
+        .accordion-inner {
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between overflow-x-hidden antialiased selection:bg-indigo-100 selection:text-indigo-900">
+
+    <!-- Encabezado -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-10">
+        <div class="max-w-6xl mx-auto px-4 py-3.5 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center gap-3 w-full sm:w-auto justify-center sm:justify-start">
+                <div class="bg-indigo-600 text-white p-2 rounded-lg shadow-sm shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg sm:text-xl font-bold text-slate-900 leading-tight">Calculadora de Resistencias</h1>
+                    <p class="text-xs text-slate-500">Código de 4 Bandas e Intervalo de Tolerancia</p>
+                </div>
+            </div>
+            <div class="flex flex-col sm:flex-row items-stretch gap-2 w-full sm:w-auto">
+                <button id="btn-install" type="button" hidden class="w-full sm:w-auto text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 px-4 py-2.5 sm:py-1.5 rounded-lg transition-colors cursor-pointer touch-manipulation">
+                    Instalar app
+                </button>
+                <button id="btn-reset" class="w-full sm:w-auto text-sm font-medium text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 active:bg-indigo-100 px-4 py-2.5 sm:py-1.5 rounded-lg transition-colors cursor-pointer touch-manipulation">
+                    Restablecer valores
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Contenido Principal -->
+    <main class="max-w-6xl mx-auto px-4 py-6 sm:py-8 sm:px-6 lg:px-8 w-full grow">
+
+        <!-- Sección Visual de la Resistencia -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-8 mb-6 sm:mb-8 flex flex-col items-center relative">
+            <div class="text-center mb-3 sm:mb-4">
+                <h2 class="text-xs sm:text-sm font-semibold uppercase tracking-wider text-slate-400">Vista Previa del Componente</h2>
+                <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5">Toca o haz clic directamente sobre cualquier banda para cambiar su color</p>
+            </div>
+
+            <!-- Contenedor del SVG Interactivo y Leyendas Alineadas Arriba/Abajo -->
+            <div class="w-full max-w-lg mx-auto my-1 sm:my-2 relative" id="resistor-visual-container">
+
+                <!-- Leyendas Superiores (1ª y 3ª Banda) alineadas exactamente al centro X de cada banda (154/500 = 30.8%, 254/500 = 50.8%) -->
+                <div class="relative w-full h-11 sm:h-12 select-none">
+                    <!-- 1ª Banda (Arriba) -->
+                    <button type="button" data-band="1" class="band-label-btn absolute -translate-x-1/2 bottom-0 flex flex-col items-center group cursor-pointer touch-manipulation focus:outline-none" style="left: 30.8%;">
+                        <span class="text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-indigo-600 whitespace-nowrap leading-tight">1ª Banda</span>
+                        <span class="text-[10px] text-slate-400 whitespace-nowrap leading-tight">(1ª Cifra)</span>
+                        <span class="w-0.5 h-2 bg-slate-300 group-hover:bg-indigo-500 mt-0.5 transition-colors"></span>
+                    </button>
+
+                    <!-- 3ª Banda (Arriba) -->
+                    <button type="button" data-band="3" class="band-label-btn absolute -translate-x-1/2 bottom-0 flex flex-col items-center group cursor-pointer touch-manipulation focus:outline-none" style="left: 50.8%;">
+                        <span class="text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-indigo-600 whitespace-nowrap leading-tight">3ª Banda</span>
+                        <span class="text-[10px] text-slate-400 whitespace-nowrap leading-tight">(Multiplicador)</span>
+                        <span class="w-0.5 h-2 bg-slate-300 group-hover:bg-indigo-500 mt-0.5 transition-colors"></span>
+                    </button>
+                </div>
+
+                <!-- SVG Interactivo de la Resistencia -->
+                <svg id="resistor-svg" viewBox="0 0 500 140" class="w-full h-auto resistor-shadow block" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Representación visual de la resistencia con sus cuatro bandas de color">
+                    <defs>
+                        <!-- Gradiente metálico para los terminales -->
+                        <linearGradient id="wireGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#94a3b8" />
+                            <stop offset="50%" stop-color="#e2e8f0" />
+                            <stop offset="100%" stop-color="#64748b" />
+                        </linearGradient>
+                        <!-- Gradiente para el cuerpo cerámico beige de la resistencia -->
+                        <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#f3e5ab" />
+                            <stop offset="30%" stop-color="#ebd591" />
+                            <stop offset="85%" stop-color="#d4b96a" />
+                            <stop offset="100%" stop-color="#bfa14f" />
+                        </linearGradient>
+                        <!-- Gradientes metálicos para Oro y Plata -->
+                        <linearGradient id="goldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#fde047" />
+                            <stop offset="40%" stop-color="#eab308" />
+                            <stop offset="80%" stop-color="#ca8a04" />
+                            <stop offset="100%" stop-color="#a16207" />
+                        </linearGradient>
+                        <linearGradient id="silverGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" stop-color="#f8fafc" />
+                            <stop offset="40%" stop-color="#cbd5e1" />
+                            <stop offset="80%" stop-color="#94a3b8" />
+                            <stop offset="100%" stop-color="#64748b" />
+                        </linearGradient>
+                    </defs>
+
+                    <!-- Alambres terminales izquierdo y derecho -->
+                    <rect x="10" y="64" width="110" height="12" rx="4" fill="url(#wireGrad)" />
+                    <rect x="380" y="64" width="110" height="12" rx="4" fill="url(#wireGrad)" />
+
+                    <!-- Cuerpo de la resistencia (forma clásica con extremos más anchos) -->
+                    <path d="M 110,35
+                             C 110,22 145,22 155,32
+                             L 345,32
+                             C 355,22 390,22 390,35
+                             L 390,105
+                             C 390,118 355,118 345,108
+                             L 155,108
+                             C 145,118 110,118 110,105 Z"
+                          fill="url(#bodyGrad)" stroke="#b09343" stroke-width="1.5"/>
+
+                    <!-- Banda 1 (1ª Cifra) - Centro X = 154 (30.8%) -->
+                    <g id="band-group-1" class="clickable-band" role="button" tabindex="0" aria-label="Seleccionar color de la 1ª Banda">
+                        <rect id="svg-band-1" x="145" y="27" width="18" height="86" rx="2" fill="#92400e" class="band-transition band-visual" />
+                        <!-- Área táctil ampliada invisible para facilitar pulsación en móviles -->
+                        <rect x="136" y="18" width="36" height="104" fill="transparent" />
+                    </g>
+
+                    <!-- Banda 2 (2ª Cifra) - Centro X = 204 (40.8%) -->
+                    <g id="band-group-2" class="clickable-band" role="button" tabindex="0" aria-label="Seleccionar color de la 2ª Banda">
+                        <rect id="svg-band-2" x="195" y="32" width="18" height="76" fill="#000000" class="band-transition band-visual" />
+                        <rect x="186" y="18" width="36" height="104" fill="transparent" />
+                    </g>
+
+                    <!-- Banda 3 (Multiplicador) - Centro X = 254 (50.8%) -->
+                    <g id="band-group-3" class="clickable-band" role="button" tabindex="0" aria-label="Seleccionar color de la 3ª Banda">
+                        <rect id="svg-band-3" x="245" y="32" width="18" height="76" fill="#dc2626" class="band-transition band-visual" />
+                        <rect x="236" y="18" width="36" height="104" fill="transparent" />
+                    </g>
+
+                    <!-- Banda 4 (Tolerancia) - Centro X = 344 (68.8%) -->
+                    <g id="band-group-4" class="clickable-band" role="button" tabindex="0" aria-label="Seleccionar color de la 4ª Banda">
+                        <!-- Contorno discontinuo visible cuando se elige "Sin banda" -->
+                        <rect x="335" y="27" width="18" height="86" rx="2" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.65" />
+                        <rect id="svg-band-4" x="335" y="27" width="18" height="86" rx="2" fill="url(#goldGrad)" class="band-transition band-visual" />
+                        <rect x="326" y="18" width="36" height="104" fill="transparent" />
+                    </g>
+
+                    <!-- Brillo superior sutil para efecto 3D -->
+                    <path d="M 120,38 L 380,38" stroke="rgba(255,255,255,0.45)" stroke-width="4" stroke-linecap="round" pointer-events="none" />
+                </svg>
+
+                <!-- Leyendas Inferiores (2ª y 4ª Banda) alineadas exactamente al centro X de cada banda (204/500 = 40.8%, 344/500 = 68.8%) -->
+                <div class="relative w-full h-11 sm:h-12 select-none">
+                    <!-- 2ª Banda (Abajo) -->
+                    <button type="button" data-band="2" class="band-label-btn absolute -translate-x-1/2 top-0 flex flex-col items-center group cursor-pointer touch-manipulation focus:outline-none" style="left: 40.8%;">
+                        <span class="w-0.5 h-2 bg-slate-300 group-hover:bg-indigo-500 mb-0.5 transition-colors"></span>
+                        <span class="text-[11px] sm:text-xs font-bold text-slate-700 group-hover:text-indigo-600 whitespace-nowrap leading-tight">2ª Banda</span>
+                        <span class="text-[10px] text-slate-400 whitespace-nowrap leading-tight">(2ª Cifra)</span>
+                    </button>
+
+                    <!-- 4ª Banda (Abajo) -->
+                    <button type="button" data-band="4" class="band-label-btn absolute -translate-x-1/2 top-0 flex flex-col items-center group cursor-pointer touch-manipulation focus:outline-none" style="left: 68.8%;">
+                        <span class="w-0.5 h-2 bg-indigo-300 group-hover:bg-indigo-600 mb-0.5 transition-colors"></span>
+                        <span class="text-[11px] sm:text-xs font-bold text-indigo-600 group-hover:text-indigo-800 whitespace-nowrap leading-tight">4ª Banda</span>
+                        <span class="text-[10px] text-indigo-400 whitespace-nowrap leading-tight">(Tolerancia)</span>
+                    </button>
+                </div>
+
+                <!-- Popover / Selector Flotante de Colores al pulsar sobre una banda -->
+                <div id="band-popover" class="hidden fixed sm:absolute z-30 inset-x-4 bottom-4 sm:inset-auto sm:top-full sm:left-1/2 sm:-translate-x-1/2 sm:mt-2 sm:w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 p-3.5 transition-all" role="dialog" aria-label="Selector de color de banda">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-2.5">
+                        <span id="popover-title" class="text-xs font-bold uppercase tracking-wider text-indigo-600">Seleccionar Color</span>
+                        <button id="popover-close" type="button" aria-label="Cerrar selector" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 cursor-pointer touch-manipulation">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="popover-options" class="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto pr-0.5">
+                        <!-- Opciones generadas dinámicamente por JS -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controles de Selección de Bandas: Apilados en móviles (grid-cols-1) y en una sola línea en pantallas grandes (md:grid-cols-4) -->
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
+            <!-- Selector Banda 1 -->
+            <div class="bg-white p-3.5 sm:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <label for="select-band-1" class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center justify-between gap-1">
+                    <span class="truncate">1ª Banda (Cifra 1)</span>
+                    <span id="dot-band-1" class="w-4 h-4 rounded-full border border-slate-300 inline-block shrink-0"></span>
+                </label>
+                <select id="select-band-1" class="w-full p-3 sm:p-2.5 pr-8 bg-slate-50 border border-slate-300 rounded-lg text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer touch-manipulation">
+                    <!-- Opciones generadas dinámicamente por JS -->
+                </select>
+            </div>
+
+            <!-- Selector Banda 2 -->
+            <div class="bg-white p-3.5 sm:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <label for="select-band-2" class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center justify-between gap-1">
+                    <span class="truncate">2ª Banda (Cifra 2)</span>
+                    <span id="dot-band-2" class="w-4 h-4 rounded-full border border-slate-300 inline-block shrink-0"></span>
+                </label>
+                <select id="select-band-2" class="w-full p-3 sm:p-2.5 pr-8 bg-slate-50 border border-slate-300 rounded-lg text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer touch-manipulation">
+                    <!-- Opciones generadas dinámicamente por JS -->
+                </select>
+            </div>
+
+            <!-- Selector Banda 3 -->
+            <div class="bg-white p-3.5 sm:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between">
+                <label for="select-band-3" class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center justify-between gap-1">
+                    <span class="truncate">3ª Banda (Multiplicador)</span>
+                    <span id="dot-band-3" class="w-4 h-4 rounded-full border border-slate-300 inline-block shrink-0"></span>
+                </label>
+                <select id="select-band-3" class="w-full p-3 sm:p-2.5 pr-8 bg-slate-50 border border-slate-300 rounded-lg text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer touch-manipulation">
+                    <!-- Opciones generadas dinámicamente por JS -->
+                </select>
+            </div>
+
+            <!-- Selector Banda 4 (Tolerancia) -->
+            <div class="bg-white p-3.5 sm:p-4 rounded-xl shadow-sm border-2 border-indigo-200 flex flex-col justify-between relative">
+                <label for="select-band-4" class="text-xs font-bold uppercase tracking-wider text-indigo-600 mb-2 flex items-center justify-between gap-1">
+                    <span class="truncate">4ª Banda (Tolerancia)</span>
+                    <span id="dot-band-4" class="w-4 h-4 rounded-full border border-slate-300 inline-block shrink-0"></span>
+                </label>
+                <select id="select-band-4" class="w-full p-3 sm:p-2.5 pr-8 bg-indigo-50/50 border border-indigo-200 rounded-lg text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer touch-manipulation">
+                    <!-- Opciones generadas dinámicamente por JS -->
+                </select>
+            </div>
+        </section>
+
+        <!-- Panel de Resultados e Intervalo de Tolerancia -->
+        <section class="bg-slate-900 text-white rounded-2xl shadow-lg p-5 sm:p-8 overflow-hidden relative">
+            <!-- Decoración de fondo -->
+            <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-500 rounded-full opacity-10 blur-2xl pointer-events-none"></div>
+            <div class="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-emerald-500 rounded-full opacity-10 blur-2xl pointer-events-none"></div>
+
+            <div class="relative z-10">
+                <!-- Valor Nominal Principal -->
+                <div class="text-center border-b border-slate-700/80 pb-6 mb-6">
+                    <span class="text-xs font-semibold uppercase tracking-widest text-indigo-400">Valor Nominal de la Resistencia</span>
+                    <div class="mt-2 flex flex-wrap items-baseline justify-center gap-3">
+                        <span id="res-nominal" class="text-4xl sm:text-5xl font-extrabold tracking-tight text-white">1 kΩ</span>
+                        <span id="res-tolerance-badge" class="text-lg sm:text-xl font-bold px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">±5%</span>
+                    </div>
+                    <p id="res-exact-ohms" class="text-sm text-slate-400 mt-2">Valor exacto: 1.000 Ω (Desviación máxima: ±50 Ω)</p>
+                </div>
+
+                <!-- Visualización Clara y Destacada del Intervalo -->
+                <div class="bg-slate-950/50 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-inner">
+                    <div class="flex flex-col sm:flex-row items-center justify-between gap-2 mb-6">
+                        <h3 class="text-base sm:text-lg font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                            Intervalo Real Garantizado
+                        </h3>
+                        <span id="res-span" class="text-xs sm:text-sm font-bold px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                            Margen total: 100 Ω
+                        </span>
+                    </div>
+
+                    <!-- Tarjetas de Mínimo y Máximo con Alto Contraste -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
+                        <!-- Límite Inferior (Valor Mínimo) -->
+                        <div class="bg-gradient-to-br from-rose-950/80 to-slate-900 border-2 border-rose-500/50 rounded-xl p-5 text-center relative overflow-hidden">
+                            <div class="text-xs font-bold uppercase tracking-widest text-rose-300 mb-1">
+                                Límite Inferior (-<span id="lbl-tol-min">5</span>%)
+                            </div>
+                            <div id="res-min" class="text-3xl sm:text-4xl font-black text-white tracking-tight my-1">950 Ω</div>
+                            <div id="res-min-exact" class="text-xs font-mono text-rose-200/70">950,00 Ω</div>
+                        </div>
+
+                        <!-- Límite Superior (Valor Máximo) -->
+                        <div class="bg-gradient-to-br from-amber-950/80 to-slate-900 border-2 border-amber-500/50 rounded-xl p-5 text-center relative overflow-hidden">
+                            <div class="text-xs font-bold uppercase tracking-widest text-amber-300 mb-1">
+                                Límite Superior (+<span id="lbl-tol-max">5</span>%)
+                            </div>
+                            <div id="res-max" class="text-3xl sm:text-4xl font-black text-white tracking-tight my-1">1,05 kΩ</div>
+                            <div id="res-max-exact" class="text-xs font-mono text-amber-200/70">1.050,00 Ω</div>
+                        </div>
+                    </div>
+
+                    <!-- Escala Gráfica de Intervalo -->
+                    <div class="mb-6 px-2">
+                        <div class="flex justify-between text-xs font-bold text-slate-400 mb-2">
+                            <span class="text-rose-400">MÍNIMO</span>
+                            <span class="text-indigo-300">NOMINAL (<span id="bar-nominal-label">1 kΩ</span>)</span>
+                            <span class="text-amber-400">MÁXIMO</span>
+                        </div>
+                        <div class="relative h-6 bg-slate-800 rounded-full p-1 border border-slate-700 flex items-center">
+                            <!-- Barra de rango activo -->
+                            <div class="w-full h-full rounded-full bg-gradient-to-r from-rose-500 via-emerald-400 to-amber-500 shadow-sm"></div>
+                            <!-- Marcador izquierdo -->
+                            <div class="w-3 h-7 bg-rose-400 border-2 border-slate-950 rounded-sm absolute left-1 shadow"></div>
+                            <!-- Marcador central (Nominal) -->
+                            <div class="w-1.5 h-8 bg-white rounded-full absolute left-1/2 transform -translate-x-1/2 shadow-md"></div>
+                            <!-- Marcador derecho -->
+                            <div class="w-3 h-7 bg-amber-400 border-2 border-slate-950 rounded-sm absolute right-1 shadow"></div>
+                        </div>
+                    </div>
+
+                    <!-- Notación Matemática de Intervalo Destacada -->
+                    <div class="bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-4 text-center shadow-md">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-1.5">
+                            Intervalo Cerrado de Valores Válidos [ Mín , Máx ]
+                        </span>
+                        <div id="res-interval-notation" class="text-lg sm:text-2xl md:text-3xl font-mono font-extrabold text-emerald-300 tracking-wide break-words">
+                            [ 950 Ω  ,  1,05 kΩ ]
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Acordeón de Tabla de Referencia de Todos los Valores de Tolerancia (Inicialmente Replegado) -->
+        <section class="mt-6 sm:mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <button id="accordion-toggle" type="button" aria-expanded="false" aria-controls="accordion-body" class="w-full p-4 sm:p-6 text-left flex items-center justify-between gap-4 hover:bg-slate-50/80 active:bg-slate-100 transition-colors cursor-pointer touch-manipulation focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500">
+                <div>
+                    <h3 class="text-sm sm:text-base font-bold text-slate-800">Tabla Completa de Bandas de Tolerancia (Mayor a Menor)</h3>
+                    <p class="text-xs text-slate-500 mt-0.5">Pulsa para desplegar la guía de referencia rápida y seleccionar valores directamente</p>
+                </div>
+                <div class="bg-slate-100 text-slate-600 p-2 rounded-lg shrink-0">
+                    <svg id="accordion-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transform transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </div>
+            </button>
+
+            <div id="accordion-body" class="accordion-content">
+                <div class="accordion-inner">
+                    <div class="px-4 pb-5 sm:px-6 sm:pb-6 pt-2 border-t border-slate-100">
+                        <p class="text-xs text-slate-500 mb-3">Haz clic o toca cualquier fila de la tabla para aplicar esa tolerancia directamente a tu resistencia.</p>
+                        <div class="overflow-x-auto -mx-4 sm:mx-0">
+                            <div class="inline-block min-w-full align-middle px-4 sm:px-0">
+                                <table class="w-full text-left border-collapse text-sm">
+                                    <thead>
+                                        <tr class="border-b border-slate-200 text-xs uppercase text-slate-500 bg-slate-50">
+                                            <th scope="col" class="py-2.5 px-3 rounded-tl-lg whitespace-nowrap">Color de Banda</th>
+                                            <th scope="col" class="py-2.5 px-3 whitespace-nowrap">Código</th>
+                                            <th scope="col" class="py-2.5 px-3 whitespace-nowrap">Tolerancia (%)</th>
+                                            <th scope="col" class="py-2.5 px-3 rounded-tr-lg">Aplicación Típica</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tolerance-reference-table" class="divide-y divide-slate-100">
+                                        <!-- Filas generadas dinámicamente por JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Pie de página -->
+    <footer class="bg-white border-t border-slate-200 mt-12 py-6 text-center text-xs text-slate-500">
+        <p>Calculadora de Código de Colores de Resistencias (Norma Internacional IEC 60062).</p>
+        <p class="mt-1 text-slate-400">Un proyecto educativo del portal <a class="underline hover:text-indigo-600" href="https://tecdea.github.io/" target="_blank" rel="noopener">TecDeA</a>.</p>
+    </footer>
+
+    <!-- Lógica de la Aplicación -->
+    <script>
+        'use strict';
+
+        /**
+         * Definición completa de los colores según la norma IEC 60062
+         * Incluye todos los valores conocidos para dígitos, multiplicadores y tolerancias.
+         */
+        const RESISTOR_COLORS = [
+            { id: 'black',  name: 'Negro',              hex: '#18181b', svgFill: '#18181b', digit: 0, multiplier: 1,          tolerance: null, tolCode: '-', desc: '' },
+            { id: 'brown',  name: 'Marrón',             hex: '#78350f', svgFill: '#78350f', digit: 1, multiplier: 10,         tolerance: 1,    tolCode: 'F', desc: 'Alta precisión (Estándar película metálica)' },
+            { id: 'red',    name: 'Rojo',               hex: '#dc2626', svgFill: '#dc2626', digit: 2, multiplier: 100,        tolerance: 2,    tolCode: 'G', desc: 'Precisión media' },
+            { id: 'orange', name: 'Naranja',            hex: '#f97316', svgFill: '#f97316', digit: 3, multiplier: 1000,       tolerance: 0.05, tolCode: 'W', desc: 'Ultra alta precisión / Instrumentación' },
+            { id: 'yellow', name: 'Amarillo',           hex: '#eab308', svgFill: '#eab308', digit: 4, multiplier: 10000,      tolerance: 0.02, tolCode: 'P', desc: 'Ultra alta precisión / Metrología' },
+            { id: 'green',  name: 'Verde',              hex: '#16a34a', svgFill: '#16a34a', digit: 5, multiplier: 100000,     tolerance: 0.5,  tolCode: 'D', desc: 'Alta precisión' },
+            { id: 'blue',   name: 'Azul',               hex: '#2563eb', svgFill: '#2563eb', digit: 6, multiplier: 1000000,    tolerance: 0.25, tolCode: 'C', desc: 'Muy alta precisión' },
+            { id: 'violet', name: 'Violeta',            hex: '#7c3aed', svgFill: '#7c3aed', digit: 7, multiplier: 10000000,   tolerance: 0.1,  tolCode: 'B', desc: 'Muy alta precisión' },
+            { id: 'grey',   name: 'Gris',               hex: '#64748b', svgFill: '#64748b', digit: 8, multiplier: 100000000,  tolerance: 0.01, tolCode: 'L', desc: 'Máxima precisión / Laboratorio' },
+            { id: 'white',  name: 'Blanco',             hex: '#f8fafc', svgFill: '#f8fafc', digit: 9, multiplier: 1000000000, tolerance: null, tolCode: '-', desc: '' },
+            { id: 'gold',   name: 'Oro (Dorado)',       hex: '#d97706', svgFill: 'url(#goldGrad)',   digit: null, multiplier: 0.1,  tolerance: 5,  tolCode: 'J', desc: 'Uso general más común (Película de carbón)' },
+            { id: 'silver', name: 'Plata (Plateado)',   hex: '#94a3b8', svgFill: 'url(#silverGrad)', digit: null, multiplier: 0.01, tolerance: 10, tolCode: 'K', desc: 'Uso general / Componentes antiguos o potencia' },
+            { id: 'none',   name: 'Sin banda (Ninguno)', hex: 'transparent', svgFill: 'transparent', digit: null, multiplier: null, tolerance: 20, tolCode: 'M', desc: 'Tolerancia amplia (Estándar antiguo)' }
+        ];
+
+        // Referencias a elementos del DOM
+        const selectBand1 = document.getElementById('select-band-1');
+        const selectBand2 = document.getElementById('select-band-2');
+        const selectBand3 = document.getElementById('select-band-3');
+        const selectBand4 = document.getElementById('select-band-4');
+
+        const svgBand1 = document.getElementById('svg-band-1');
+        const svgBand2 = document.getElementById('svg-band-2');
+        const svgBand3 = document.getElementById('svg-band-3');
+        const svgBand4 = document.getElementById('svg-band-4');
+
+        const dotBand1 = document.getElementById('dot-band-1');
+        const dotBand2 = document.getElementById('dot-band-2');
+        const dotBand3 = document.getElementById('dot-band-3');
+        const dotBand4 = document.getElementById('dot-band-4');
+
+        /**
+         * Formatea un valor en Ohmios a una representación legible (Ω, kΩ, MΩ, GΩ)
+         * manteniendo la precisión adecuada.
+         */
+        function formatOhms(ohms) {
+            if (ohms === 0) return '0 Ω';
+
+            const absOhms = Math.abs(ohms);
+            let value = ohms;
+            let unit = 'Ω';
+
+            if (absOhms >= 1e9) {
+                value = ohms / 1e9;
+                unit = 'GΩ';
+            } else if (absOhms >= 1e6) {
+                value = ohms / 1e6;
+                unit = 'MΩ';
+            } else if (absOhms >= 1e3) {
+                value = ohms / 1e3;
+                unit = 'kΩ';
+            }
+
+            // Eliminar ceros innecesarios tras el punto decimal, conservando hasta 4 decimales para tolerancias finas
+            const formattedNumber = parseFloat(value.toFixed(4)).toLocaleString('es-ES', {
+                maximumFractionDigits: 4
+            });
+
+            return `${formattedNumber} ${unit}`;
+        }
+
+        /**
+         * Formatea el número exacto en Ohmios con separadores de miles y decimales si existen
+         */
+        function formatExactOhms(ohms) {
+            return parseFloat(ohms.toFixed(4)).toLocaleString('es-ES', {
+                minimumFractionDigits: ohms % 1 === 0 ? 0 : 2,
+                maximumFractionDigits: 4
+            }) + ' Ω';
+        }
+
+        /**
+         * Formatea el multiplicador para mostrarlo de forma clara en el selector
+         */
+        function formatMultiplierLabel(mult) {
+            if (mult === 0.01) return '×0.01 Ω';
+            if (mult === 0.1) return '×0.1 Ω';
+            if (mult === 1) return '×1 Ω';
+            if (mult === 10) return '×10 Ω';
+            if (mult === 100) return '×100 Ω';
+            if (mult === 1000) return '×1 kΩ';
+            if (mult === 10000) return '×10 kΩ';
+            if (mult === 100000) return '×100 kΩ';
+            if (mult === 1000000) return '×1 MΩ';
+            if (mult === 10000000) return '×10 MΩ';
+            if (mult === 100000000) return '×100 MΩ';
+            if (mult === 1000000000) return '×1 GΩ';
+            return `×${mult}`;
+        }
+
+        /**
+         * Rellena los selectores HTML con sus opciones correspondientes
+         */
+        function populateSelectors() {
+            // Banda 1: Dígitos 1-9 (En código estándar de 4 bandas la 1ª cifra no suele ser negro/0, pero permitimos 0-9 por flexibilidad)
+            RESISTOR_COLORS.filter(c => c.digit !== null).forEach(color => {
+                const opt = document.createElement('option');
+                opt.value = color.id;
+                opt.textContent = `${color.name} (${color.digit})`;
+                selectBand1.appendChild(opt);
+            });
+
+            // Banda 2: Dígitos 0-9
+            RESISTOR_COLORS.filter(c => c.digit !== null).forEach(color => {
+                const opt = document.createElement('option');
+                opt.value = color.id;
+                opt.textContent = `${color.name} (${color.digit})`;
+                selectBand2.appendChild(opt);
+            });
+
+            // Banda 3: Multiplicadores (incluye Oro y Plata)
+            RESISTOR_COLORS.filter(c => c.multiplier !== null).forEach(color => {
+                const opt = document.createElement('option');
+                opt.value = color.id;
+                opt.textContent = `${color.name} (${formatMultiplierLabel(color.multiplier)})`;
+                selectBand3.appendChild(opt);
+            });
+
+            // Banda 4: Todos los valores de Tolerancia conocidos ordenados de MAYOR a MENOR
+            const sortedTolerances = RESISTOR_COLORS
+                .filter(c => c.tolerance !== null)
+                .sort((a, b) => b.tolerance - a.tolerance);
+
+            sortedTolerances.forEach(color => {
+                const opt = document.createElement('option');
+                opt.value = color.id;
+                opt.textContent = `±${color.tolerance}% — ${color.name}`;
+                selectBand4.appendChild(opt);
+            });
+        }
+
+        /**
+         * Construye la tabla de referencia interactiva de tolerancias ordenada de mayor a menor
+         */
+        function populateReferenceTable() {
+            const tbody = document.getElementById('tolerance-reference-table');
+            tbody.innerHTML = '';
+
+            const sortedTolerances = RESISTOR_COLORS
+                .filter(c => c.tolerance !== null)
+                .sort((a, b) => b.tolerance - a.tolerance);
+
+            sortedTolerances.forEach(color => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-indigo-50/70 transition-colors cursor-pointer';
+                tr.title = `Haz clic para seleccionar tolerancia ${color.name} (±${color.tolerance}%)`;
+
+                // Al hacer clic en la fila, selecciona esa tolerancia
+                tr.addEventListener('click', () => {
+                    selectBand4.value = color.id;
+                    updateCalculation();
+                });
+
+                const swatchStyle = color.id === 'none'
+                    ? 'background: repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 4px, #ffffff 4px, #ffffff 8px);'
+                    : `background-color: ${color.hex};`;
+
+                tr.innerHTML = `
+                    <td class="py-2.5 px-3 font-medium text-slate-800">
+                        <span class="flex items-center gap-2.5">
+                            <span class="w-4 h-4 rounded-full border border-slate-300 inline-block shrink-0" style="${swatchStyle}"></span>
+                            <span>${color.name}</span>
+                        </span>
+                    </td>
+                    <td class="py-2.5 px-3 font-mono text-xs text-slate-500">${color.tolCode}</td>
+                    <td class="py-2.5 px-3 font-bold text-indigo-600">±${color.tolerance}%</td>
+                    <td class="py-2.5 px-3 text-slate-600 text-xs">${color.desc}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        /**
+         * Actualiza los colores visuales del SVG, los puntos indicadores y calcula todos los resultados
+         */
+        function updateCalculation() {
+            try {
+                const c1 = RESISTOR_COLORS.find(c => c.id === selectBand1.value);
+                const c2 = RESISTOR_COLORS.find(c => c.id === selectBand2.value);
+                const c3 = RESISTOR_COLORS.find(c => c.id === selectBand3.value);
+                const c4 = RESISTOR_COLORS.find(c => c.id === selectBand4.value);
+
+                // Salvaguarda: si algún selector no tiene valor válido (p. ej. primer arranque
+                // antes de fijar el valor por defecto), no intentamos calcular.
+                if (!c1 || !c2 || !c3 || !c4) return;
+
+                // Actualizar colores en el SVG
+                svgBand1.setAttribute('fill', c1.svgFill);
+                svgBand2.setAttribute('fill', c2.svgFill);
+                svgBand3.setAttribute('fill', c3.svgFill);
+                svgBand4.setAttribute('fill', c4.svgFill);
+
+                // Si "Sin banda" está seleccionado en tolerancia, ocultar la 4ª banda suavemente
+                svgBand4.style.opacity = c4.id === 'none' ? '0' : '1';
+
+                // Actualizar puntos de color en las etiquetas
+                dotBand1.style.backgroundColor = c1.hex;
+                dotBand2.style.backgroundColor = c2.hex;
+                dotBand3.style.backgroundColor = c3.hex;
+                dotBand4.style.backgroundColor = c4.id === 'none' ? 'transparent' : c4.hex;
+                dotBand4.style.backgroundImage = c4.id === 'none'
+                    ? 'repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 4px, #ffffff 4px, #ffffff 8px)'
+                    : 'none';
+                dotBand4.style.opacity = c4.id === 'none' ? '0.6' : '1';
+
+                // Cálculo matemático del valor nominal
+                const significantDigits = (c1.digit * 10) + c2.digit;
+                const nominalOhms = significantDigits * c3.multiplier;
+
+                // Cálculo de la desviación y el intervalo de tolerancia
+                const tolerancePercent = c4.tolerance;
+                const deltaOhms = nominalOhms * (tolerancePercent / 100);
+                const minOhms = nominalOhms - deltaOhms;
+                const maxOhms = nominalOhms + deltaOhms;
+                const totalSpan = maxOhms - minOhms;
+
+                // Actualizar la interfaz con los resultados formateados
+                const formattedNominal = formatOhms(nominalOhms);
+                document.getElementById('res-nominal').textContent = formattedNominal;
+                document.getElementById('bar-nominal-label').textContent = formattedNominal;
+                document.getElementById('res-tolerance-badge').textContent = `±${tolerancePercent}%`;
+                document.getElementById('res-exact-ohms').textContent =
+                    `Valor exacto: ${formatExactOhms(nominalOhms)} (Desviación máxima: ±${formatExactOhms(deltaOhms)})`;
+
+                // Actualizar tarjetas de mínimo y máximo
+                document.getElementById('lbl-tol-min').textContent = tolerancePercent;
+                document.getElementById('lbl-tol-max').textContent = tolerancePercent;
+
+                document.getElementById('res-min').textContent = formatOhms(minOhms);
+                document.getElementById('res-min-exact').textContent = formatExactOhms(minOhms);
+
+                document.getElementById('res-max').textContent = formatOhms(maxOhms);
+                document.getElementById('res-max-exact').textContent = formatExactOhms(maxOhms);
+
+                document.getElementById('res-span').textContent = `Margen total: ${formatOhms(totalSpan)}`;
+
+                // Actualizar notación de intervalo matemático
+                document.getElementById('res-interval-notation').textContent =
+                    `[ ${formatOhms(minOhms)}  ,  ${formatOhms(maxOhms)} ]`;
+
+            } catch (error) {
+                console.error("Error al calcular el valor de la resistencia:", error);
+            }
+        }
+
+        /**
+         * Establece una resistencia por defecto clásica (1 kΩ ±5%: Marrón - Negro - Rojo - Oro)
+         */
+        function setDefaultResistor() {
+            selectBand1.value = 'brown';  // 1
+            selectBand2.value = 'black';  // 0
+            selectBand3.value = 'red';    // x100 -> 1.000 Ω (1 kΩ)
+            selectBand4.value = 'gold';   // ±5%
+            updateCalculation();
+        }
+    </script>
+
+    <!-- Lógica de interacción (popover, acordeón, SW e instalación PWA) -->
+    <script>
+        'use strict';
+
+        // Gestión del Popover Interactivo sobre las bandas del SVG
+        const bandPopover = document.getElementById('band-popover');
+        const popoverTitle = document.getElementById('popover-title');
+        const popoverOptions = document.getElementById('popover-options');
+        const popoverClose = document.getElementById('popover-close');
+        let activePopoverBand = null;
+
+        /**
+         * Abre o alterna el selector flotante de colores para la banda pulsada (1 a 4)
+         */
+        function openBandPopover(bandNumber) {
+            if (!bandPopover.classList.contains('hidden') && activePopoverBand === bandNumber) {
+                closeBandPopover();
+                return;
+            }
+
+            activePopoverBand = bandNumber;
+            popoverOptions.innerHTML = '';
+
+            let targetSelect;
+            let colorsList = [];
+            let titleText = '';
+
+            if (bandNumber === 1) {
+                targetSelect = selectBand1;
+                titleText = '1ª Banda — 1ª Cifra';
+                colorsList = RESISTOR_COLORS.filter(c => c.digit !== null).map(c => ({
+                    id: c.id, name: c.name, hex: c.hex, valueText: `${c.digit}`
+                }));
+            } else if (bandNumber === 2) {
+                targetSelect = selectBand2;
+                titleText = '2ª Banda — 2ª Cifra';
+                colorsList = RESISTOR_COLORS.filter(c => c.digit !== null).map(c => ({
+                    id: c.id, name: c.name, hex: c.hex, valueText: `${c.digit}`
+                }));
+            } else if (bandNumber === 3) {
+                targetSelect = selectBand3;
+                titleText = '3ª Banda — Multiplicador';
+                colorsList = RESISTOR_COLORS.filter(c => c.multiplier !== null).map(c => ({
+                    id: c.id, name: c.name, hex: c.hex, valueText: formatMultiplierLabel(c.multiplier)
+                }));
+            } else if (bandNumber === 4) {
+                targetSelect = selectBand4;
+                titleText = '4ª Banda — Tolerancia';
+                colorsList = RESISTOR_COLORS
+                    .filter(c => c.tolerance !== null)
+                    .sort((a, b) => b.tolerance - a.tolerance)
+                    .map(c => ({
+                        id: c.id, name: c.name, hex: c.hex, valueText: `±${c.tolerance}%`
+                    }));
+            }
+
+            if (!targetSelect) return;
+
+            popoverTitle.textContent = titleText;
+
+            colorsList.forEach(item => {
+                const isSelected = targetSelect.value === item.id;
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = `flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl border text-left text-xs transition-all cursor-pointer touch-manipulation ${
+                    isSelected
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-900 font-bold shadow-sm'
+                        : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50 text-slate-700 font-medium'
+                }`;
+
+                const swatchStyle = item.id === 'none'
+                    ? 'background: repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 3px, #ffffff 3px, #ffffff 6px);'
+                    : `background-color: ${item.hex};`;
+
+                btn.innerHTML = `
+                    <span class="flex items-center gap-2 truncate">
+                        <span class="w-4 h-4 rounded-full border border-slate-300 shrink-0" style="${swatchStyle}"></span>
+                        <span class="truncate">${item.name.split(' ')[0]}</span>
+                    </span>
+                    <span class="font-mono text-[11px] ${isSelected ? 'text-indigo-700' : 'text-slate-500'} shrink-0">${item.valueText}</span>
+                `;
+
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    targetSelect.value = item.id;
+                    updateCalculation();
+                    closeBandPopover();
+                });
+
+                popoverOptions.appendChild(btn);
+            });
+
+            // Posicionar horizontalmente bajo la banda en pantallas medianas/grandes
+            const xPercentages = { 1: '30.8%', 2: '40.8%', 3: '50.8%', 4: '68.8%' };
+            if (window.innerWidth >= 640) {
+                bandPopover.style.left = xPercentages[bandNumber];
+            } else {
+                bandPopover.style.left = '';
+            }
+
+            bandPopover.classList.remove('hidden');
+        }
+
+        function closeBandPopover() {
+            bandPopover.classList.add('hidden');
+            activePopoverBand = null;
+        }
+
+        // Inicialización al cargar la página
+        window.addEventListener('DOMContentLoaded', () => {
+            populateSelectors();
+            populateReferenceTable();
+            setDefaultResistor();
+
+            // Escuchar cambios en cualquiera de los 4 selectores
+            [selectBand1, selectBand2, selectBand3, selectBand4].forEach(select => {
+                select.addEventListener('change', updateCalculation);
+            });
+
+            // Eventos táctiles y de ratón en las 4 bandas del SVG
+            [1, 2, 3, 4].forEach(num => {
+                const bandGroup = document.getElementById(`band-group-${num}`);
+                bandGroup.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openBandPopover(num);
+                });
+                bandGroup.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openBandPopover(num);
+                    }
+                });
+            });
+
+            // Permitir también pulsar en las leyendas alineadas arriba y abajo de la resistencia
+            document.querySelectorAll('.band-label-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const bandNum = parseInt(btn.getAttribute('data-band'), 10);
+                    openBandPopover(bandNum);
+                });
+            });
+
+            // Cerrar popover al pulsar la X, al pulsar fuera o al pulsar Escape
+            popoverClose.addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeBandPopover();
+            });
+
+            document.addEventListener('click', (e) => {
+                if (!bandPopover.classList.contains('hidden') && !bandPopover.contains(e.target)) {
+                    closeBandPopover();
+                }
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !bandPopover.classList.contains('hidden')) {
+                    closeBandPopover();
+                }
+            });
+
+            // Al cambiar el tamaño de la ventana, la posición horizontal del popover
+            // deja de ser válida: lo cerramos para evitar un selector descolgado.
+            window.addEventListener('resize', () => {
+                if (!bandPopover.classList.contains('hidden')) closeBandPopover();
+            });
+
+            // Botón de reinicio
+            document.getElementById('btn-reset').addEventListener('click', () => {
+                closeBandPopover();
+                setDefaultResistor();
+            });
+
+            // Lógica del acordeón para la tabla de tolerancias
+            const accordionToggle = document.getElementById('accordion-toggle');
+            const accordionBody = document.getElementById('accordion-body');
+            const accordionIcon = document.getElementById('accordion-icon');
+
+            accordionToggle.addEventListener('click', () => {
+                const isExpanded = accordionToggle.getAttribute('aria-expanded') === 'true';
+                accordionToggle.setAttribute('aria-expanded', String(!isExpanded));
+                accordionBody.classList.toggle('open');
+                accordionIcon.classList.toggle('rotate-180');
+            });
+        });
+
+        /**
+         * Registro del Service Worker (solo en contextos seguros y con soporte).
+         * El SW está diseñado para convivir sin interferir con el del portal TecDeA:
+         * - Ruta propia dentro de la carpeta de la app.
+         * - Su evento fetch ignora toda petición fuera de su propio scope.
+         * - No registra rutas ni intercepta navegaciones del portal padre.
+         */
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                // Ruta relativa al documento: queda bajo /resistencias/ (o el subdirectorio que sea)
+                navigator.serviceWorker.register('sw.js').then(reg => {
+                    // Comprobar actualizaciones del SW periódicamente
+                    reg.addEventListener('updatefound', () => {
+                        const nw = reg.installing;
+                        if (nw) {
+                            nw.addEventListener('statechange', () => {
+                                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                                    // Nueva versión disponible: activarla de inmediato
+                                    nw.postMessage({ type: 'SKIP_WAITING' });
+                                }
+                            });
+                        }
+                    });
+                }).catch(err => {
+                    console.warn('No se pudo registrar el Service Worker:', err);
+                });
+
+                // Aplicar la nueva versión cuando el controlador cambie
+                let refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (refreshing) return;
+                    refreshing = true;
+                    window.location.reload();
+                });
+            });
+        }
+
+        /**
+         * Botón "Instalar app" (evento beforeinstallprompt)
+         */
+        (function setupInstallButton() {
+            let deferredPrompt = null;
+            const btnInstall = document.getElementById('btn-install');
+            if (!btnInstall) return;
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                // Evitar el mini-infobar propio del navegador y guardar el evento
+                e.preventDefault();
+                deferredPrompt = e;
+                btnInstall.hidden = false;
+            });
+
+            btnInstall.addEventListener('click', async () => {
+                if (!deferredPrompt) return;
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    btnInstall.hidden = true;
+                }
+                deferredPrompt = null;
+            });
+
+            window.addEventListener('appinstalled', () => {
+                btnInstall.hidden = true;
+                deferredPrompt = null;
+            });
+        })();
+    </script>
+</body>
+</html>
